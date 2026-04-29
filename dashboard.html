@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Fileless Malware Detection — SOC Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#060912;--s1:#0b0f1c;--s2:#101526;--s3:#161d2f;--s4:#1c2540;
+  --bd:rgba(255,255,255,0.065);--bd2:rgba(255,255,255,0.11);
+  --cyan:#22d3ee;--cyan-d:rgba(34,211,238,0.10);--cyan-b:rgba(34,211,238,0.22);
+  --red:#f87171;  --red-d:rgba(248,113,113,0.10);--red-b:rgba(248,113,113,0.22);
+  --ora:#fb923c;  --ora-d:rgba(251,146,60,0.10); --ora-b:rgba(251,146,60,0.22);
+  --yel:#fbbf24;  --yel-d:rgba(251,191,36,0.08); --yel-b:rgba(251,191,36,0.20);
+  --grn:#4ade80;  --grn-d:rgba(74,222,128,0.08); --grn-b:rgba(74,222,128,0.20);
+  --pur:#a78bfa;  --pur-d:rgba(167,139,250,0.10);--pur-b:rgba(167,139,250,0.22);
+  --t1:#e2e8f0;--t2:#94a3b8;--t3:#475569;--t4:#1e2a3a;
+  --sans:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono',monospace;
+  --sidebar:200px;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+
+/* ─── LAYOUT ─── */
+.shell{display:flex;min-height:100vh}
+.sidebar{
+  width:var(--sidebar);flex-shrink:0;position:fixed;top:0;left:0;bottom:0;
+  background:var(--s1);border-right:1px solid var(--bd);
+  display:flex;flex-direction:column;z-index:100;overflow-y:auto;
+  transition:width .2s;
+}
+.sidebar.collapsed{width:54px}
+.sidebar.collapsed .sb-logo-sub,
+.sidebar.collapsed .sb-section-label,
+.sidebar.collapsed .sb-link span,
+.sidebar.collapsed .sb-bottom,
+.sidebar.collapsed .sb-section-label,
+.sidebar.collapsed .cfg-section{display:none}
+.sidebar.collapsed .sb-logo-name{display:none}
+.sidebar.collapsed .sb-link{padding:10px;justify-content:center}
+.sidebar.collapsed .sb-logo{padding:14px;display:flex;justify-content:center}
+.main-area{margin-left:var(--sidebar);flex:1;display:flex;flex-direction:column;min-height:100vh;min-width:0;transition:margin-left .2s}
+.main-area.expanded{margin-left:54px}
+.topbar{
+  position:sticky;top:0;z-index:90;
+  background:rgba(6,9,18,0.92);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--bd);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;height:54px;gap:12px;
+}
+.content{padding:20px;flex:1;min-width:0}
+
+/* ─── SIDEBAR ─── */
+.sb-logo{
+  padding:20px 20px 16px;
+  border-bottom:1px solid var(--bd);
+}
+.sb-logo-name{
+  font-family:var(--mono);font-size:11px;font-weight:600;
+  color:var(--cyan);letter-spacing:.12em;text-transform:uppercase;
+}
+.sb-logo-sub{font-size:10px;color:var(--t3);margin-top:3px;letter-spacing:.04em}
+.sb-section{padding:12px 0 4px;border-bottom:1px solid var(--bd)}
+.sb-section-label{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);padding:0 20px 6px}
+.sb-link{
+  display:flex;align-items:center;gap:10px;padding:9px 20px;
+  color:var(--t2);text-decoration:none;font-size:12px;font-weight:500;
+  border-left:2px solid transparent;cursor:pointer;transition:all .15s;
+  white-space:nowrap;
+}
+.sb-link:hover,.sb-link.active{color:var(--t1);background:var(--s3);border-left-color:var(--cyan)}
+.sb-link svg{flex-shrink:0;opacity:.7}
+.sb-link:hover svg,.sb-link.active svg{opacity:1}
+.sb-bottom{margin-top:auto;padding:16px 20px;border-top:1px solid var(--bd)}
+.sb-model-info{font-size:10px;color:var(--t3);line-height:1.7;font-family:var(--mono)}
+.sb-model-info span{color:var(--pur)}
+.status-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--grn);box-shadow:0 0 6px var(--grn);margin-right:6px;animation:pulse 2.2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* ─── TOPBAR ─── */
+.tb-left{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.tb-section{font-size:13px;font-weight:600;color:var(--t1);white-space:nowrap}
+.tb-breadcrumb{font-size:10px;color:var(--t3);font-family:var(--mono);white-space:nowrap}
+.tb-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.tb-clock{font-family:var(--mono);font-size:11px;color:var(--t2);white-space:nowrap}
+.toggle-btn{background:none;border:1px solid var(--bd);border-radius:6px;color:var(--t3);padding:6px 8px;cursor:pointer;line-height:0;flex-shrink:0;transition:all .15s}
+.toggle-btn:hover{color:var(--t1);border-color:var(--bd2);background:var(--s3)}
+.alert-bell{
+  position:relative;background:var(--s3);border:1px solid var(--bd2);
+  border-radius:6px;padding:6px 10px;cursor:pointer;color:var(--t2);
+  font-size:12px;display:flex;align-items:center;gap:6px;
+}
+.alert-count{
+  position:absolute;top:-5px;right:-5px;background:var(--red);
+  color:#fff;font-size:9px;font-weight:700;font-family:var(--mono);
+  min-width:16px;height:16px;border-radius:8px;display:flex;
+  align-items:center;justify-content:center;padding:0 3px;
+}
+.scan-btn{
+  font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.06em;
+  padding:8px 18px;border-radius:6px;border:none;cursor:pointer;
+  background:var(--cyan);color:#060912;transition:all .18s;
+}
+.scan-btn:hover:not(:disabled){background:#38e4ff;transform:translateY(-1px);box-shadow:0 4px 16px rgba(34,211,238,.3)}
+.scan-btn:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
+.scan-btn.scanning{background:var(--s3);color:var(--cyan);border:1px solid var(--cyan-b)}
+
+/* ─── DOWNLOAD DROPDOWN ─── */
+.dl-wrap{position:relative}
+.dl-btn{
+  font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.06em;
+  padding:8px 14px;border-radius:6px;border:1px solid var(--bd2);cursor:pointer;
+  background:var(--s3);color:var(--t2);transition:all .18s;
+  display:flex;align-items:center;gap:7px;
+}
+.dl-btn:hover{background:var(--s4);color:var(--t1);border-color:var(--pur-b)}
+.dl-menu{
+  display:none;position:fixed;
+  background:var(--s2);border:1px solid var(--bd2);border-radius:8px;
+  min-width:180px;z-index:9999;overflow:hidden;
+  box-shadow:0 8px 32px rgba(0,0,0,.7);
+}
+.dl-menu.open{display:block}
+.dl-item{
+  display:flex;align-items:center;gap:10px;padding:10px 14px;
+  font-family:var(--mono);font-size:11px;color:var(--t2);cursor:pointer;
+  transition:background .12s;text-decoration:none;
+}
+.dl-item:hover{background:var(--s3);color:var(--t1)}
+.dl-item svg{flex-shrink:0;opacity:.6}
+.dl-item:hover svg{opacity:1}
+.dl-sep{height:1px;background:var(--bd);margin:2px 0}
+.last-scan{font-size:10px;color:var(--t3);font-family:var(--mono);white-space:nowrap}
+
+/* ─── SECTION HEADERS ─── */
+.sec-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;margin-top:4px}
+.sec-title{font-size:15px;font-weight:600;color:var(--t1);display:flex;align-items:center;gap:10px}
+.sec-title::before{content:'';display:block;width:3px;height:18px;background:var(--cyan);border-radius:2px}
+.sec-sub{font-size:11px;color:var(--t3);font-family:var(--mono)}
+section{padding-bottom:40px}
+section+section{border-top:1px solid var(--bd);padding-top:32px}
+
+/* ─── PROGRESS BAR ─── */
+#scanProgress{display:none;margin-bottom:20px}
+.prog-label{font-family:var(--mono);font-size:11px;color:var(--t2);margin-bottom:6px;display:flex;justify-content:space-between}
+.prog-track{background:var(--s3);border-radius:3px;height:3px;overflow:hidden}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--cyan),var(--pur));border-radius:3px;transition:width .1s;width:0}
+
+/* ─── KPI CARDS ─── */
+.kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px}
+.kpi{
+  background:var(--s2);border:1px solid var(--bd);border-radius:10px;
+  padding:18px 18px 14px;position:relative;overflow:hidden;
+  transition:border-color .2s,box-shadow .2s;
+}
+.kpi:hover{border-color:var(--bd2)}
+.kpi::after{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.kpi.k-total::after   {background:linear-gradient(90deg,var(--cyan),#60a5fa)}
+.kpi.k-threats::after {background:linear-gradient(90deg,var(--red),var(--ora))}
+.kpi.k-clean::after   {background:linear-gradient(90deg,var(--grn),#34d399)}
+.kpi.k-critical::after{background:linear-gradient(90deg,var(--red),#ef4444)}
+.kpi.k-rate::after    {background:linear-gradient(90deg,var(--pur),#818cf8)}
+.kpi.k-score::after   {background:linear-gradient(90deg,var(--ora),var(--yel))}
+.kpi-icon{position:absolute;top:14px;right:14px;font-size:18px;opacity:.25}
+.kpi-label{font-size:10px;color:var(--t3);font-family:var(--mono);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px}
+.kpi-val{font-size:30px;font-weight:700;font-family:var(--mono);line-height:1;letter-spacing:-.02em}
+.kpi.k-total   .kpi-val{color:var(--cyan)}
+.kpi.k-threats .kpi-val{color:var(--red)}
+.kpi.k-clean   .kpi-val{color:var(--grn)}
+.kpi.k-critical .kpi-val{color:var(--red)}
+.kpi.k-rate    .kpi-val{color:var(--pur)}
+.kpi.k-score   .kpi-val{color:var(--ora)}
+.kpi-sub{font-size:10px;color:var(--t3);margin-top:7px;font-family:var(--mono)}
+.kpi-badge{display:inline-block;font-size:9px;padding:2px 7px;border-radius:3px;font-family:var(--mono);margin-top:6px}
+.kpi-badge.danger{background:var(--red-d);color:var(--red)}
+.kpi-badge.warn{background:var(--ora-d);color:var(--ora)}
+.kpi-badge.safe{background:var(--grn-d);color:var(--grn)}
+.kpi-badge.info{background:var(--cyan-d);color:var(--cyan)}
+
+/* ─── PANELS ─── */
+.panel{background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:20px}
+.panel-head{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--t2);letter-spacing:.09em;text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+.panel-head-left{display:flex;align-items:center;gap:8px}
+.ph-dot{width:6px;height:6px;border-radius:50%;background:var(--cyan);flex-shrink:0}
+.panel-badge{font-size:9px;padding:2px 7px;border-radius:3px;background:var(--s4);color:var(--t3);border:1px solid var(--bd);font-family:var(--mono)}
+.chart-wrap{position:relative}
+
+/* ─── GRID LAYOUTS ─── */
+.g2   {display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:20px}
+.g3   {display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px}
+.g2eq {display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+
+/* ─── DETECTION TIMELINE ─── */
+.timeline-panel{background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:20px}
+.tl-stats{display:flex;gap:20px;margin-bottom:16px}
+.tl-stat{font-family:var(--mono);font-size:11px}
+.tl-stat-label{color:var(--t3);margin-right:6px}
+.tl-stat-val.r{color:var(--red)}
+.tl-stat-val.g{color:var(--grn)}
+.tl-stat-val.c{color:var(--cyan)}
+
+/* ─── ALERT FEED ─── */
+.alert-feed-panel{background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:20px;display:flex;flex-direction:column}
+.feed-list{flex:1;overflow-y:auto;max-height:300px;display:flex;flex-direction:column;gap:6px}
+.feed-item{
+  background:var(--s3);border-radius:7px;padding:10px 12px;
+  border-left:3px solid transparent;animation:slideIn .3s ease;
+  cursor:pointer;transition:background .15s;
+}
+.feed-item:hover{background:var(--s4)}
+@keyframes slideIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+.feed-item.CRITICAL{border-left-color:var(--red)}
+.feed-item.HIGH    {border-left-color:var(--ora)}
+.feed-item.MEDIUM  {border-left-color:var(--yel)}
+.fi-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.fi-name{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--t1)}
+.fi-pid{font-family:var(--mono);font-size:10px;color:var(--t3)}
+.fi-score{font-family:var(--mono);font-size:11px;font-weight:600}
+.fi-score.high{color:var(--red)}
+.fi-score.med{color:var(--ora)}
+.fi-indicators{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.fi-ind{font-size:9px;padding:1px 6px;border-radius:3px;background:var(--red-d);color:var(--red);font-family:var(--mono)}
+.fi-ind.yara{background:var(--ora-d);color:var(--ora)}
+.feed-empty{color:var(--t3);font-family:var(--mono);font-size:11px;text-align:center;padding:30px 0}
+
+/* ─── RISK BADGES ─── */
+.risk{display:inline-block;font-family:var(--mono);font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;letter-spacing:.05em}
+.risk-CRITICAL{background:var(--red-d);color:var(--red);border:1px solid var(--red-b)}
+.risk-HIGH    {background:var(--ora-d);color:var(--ora);border:1px solid var(--ora-b)}
+.risk-MEDIUM  {background:var(--yel-d);color:var(--yel);border:1px solid var(--yel-b)}
+.risk-LOW     {background:var(--cyan-d);color:var(--cyan);border:1px solid var(--cyan-b)}
+.risk-SAFE    {background:var(--grn-d);color:var(--grn);border:1px solid var(--grn-b)}
+
+/* ─── ATTACK TECHNIQUE GRID ─── */
+.atk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.atk-card{
+  background:var(--s3);border:1px solid var(--bd);border-radius:8px;
+  padding:12px 14px;display:flex;align-items:center;gap:12px;
+  transition:border-color .15s,background .15s;
+}
+.atk-card:hover{background:var(--s4);border-color:var(--bd2)}
+.atk-count{
+  font-family:var(--mono);font-size:20px;font-weight:700;
+  min-width:36px;text-align:center;flex-shrink:0;
+}
+.atk-count.c-red{color:var(--red)} .atk-count.c-ora{color:var(--ora)}
+.atk-count.c-yel{color:var(--yel)} .atk-count.c-cyan{color:var(--cyan)}
+.atk-count.c-pur{color:var(--pur)} .atk-count.c-grn{color:var(--grn)}
+.atk-info{}
+.atk-name{font-size:11px;font-weight:500;color:var(--t1);line-height:1.3}
+.atk-label{font-size:9px;color:var(--t3);font-family:var(--mono);margin-top:2px;text-transform:uppercase;letter-spacing:.06em}
+
+/* ─── PROCESS TABLE ─── */
+.table-controls{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.search-wrap{position:relative;flex:1;min-width:200px;max-width:300px}
+.search-wrap svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--t3);pointer-events:none}
+#filterInput{
+  width:100%;background:var(--s3);border:1px solid var(--bd);border-radius:7px;
+  padding:8px 12px 8px 34px;font-family:var(--mono);font-size:11px;color:var(--t1);outline:none;
+}
+#filterInput:focus{border-color:var(--cyan)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{
+  font-family:var(--mono);font-size:9px;padding:4px 10px;border-radius:4px;cursor:pointer;
+  border:1px solid var(--bd);color:var(--t3);background:transparent;transition:all .15s;font-weight:600;letter-spacing:.04em;
+}
+.chip:hover{border-color:var(--bd2);color:var(--t2)}
+.chip[data-r="ALL"].active    {background:var(--s4);color:var(--t1);border-color:var(--bd2)}
+.chip[data-r="CRITICAL"].active{background:var(--red-d);color:var(--red);border-color:var(--red-b)}
+.chip[data-r="HIGH"].active   {background:var(--ora-d);color:var(--ora);border-color:var(--ora-b)}
+.chip[data-r="MEDIUM"].active {background:var(--yel-d);color:var(--yel);border-color:var(--yel-b)}
+.chip[data-r="LOW"].active    {background:var(--cyan-d);color:var(--cyan);border-color:var(--cyan-b)}
+.chip[data-r="SAFE"].active   {background:var(--grn-d);color:var(--grn);border-color:var(--grn-b)}
+.tbl-wrap{overflow-x:auto;border:1px solid var(--bd);border-radius:8px}
+table{width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono)}
+thead th{
+  text-align:left;padding:10px 14px;font-size:9px;letter-spacing:.08em;
+  color:var(--t3);font-weight:600;text-transform:uppercase;
+  background:var(--s3);border-bottom:1px solid var(--bd);
+  position:sticky;top:0;z-index:1;
+}
+thead th.sortable{cursor:pointer}
+thead th.sortable:hover{color:var(--t2)}
+thead th.sort-asc::after {content:' ↑';color:var(--cyan)}
+thead th.sort-desc::after{content:' ↓';color:var(--cyan)}
+tbody tr{border-bottom:1px solid var(--bd);cursor:pointer;transition:background .1s}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover{background:var(--s3)}
+tbody tr.row-critical{background:rgba(248,113,113,0.03)}
+tbody tr.row-critical:hover{background:rgba(248,113,113,0.07)}
+tbody td{padding:10px 14px;color:var(--t1);vertical-align:middle}
+.proc-name{font-weight:600;font-size:12px}
+.proc-name.threat{color:var(--red)}
+.score-bar{display:flex;align-items:center;gap:7px}
+.score-trk{flex:1;background:var(--s4);border-radius:2px;height:3px;min-width:50px}
+.score-fill{height:100%;border-radius:2px}
+.score-num{min-width:40px;font-size:11px}
+.tbl-empty{padding:50px;text-align:center;color:var(--t3);font-size:12px}
+.tbl-count{font-size:10px;color:var(--t3);padding:10px 14px;background:var(--s3);border-top:1px solid var(--bd);border-radius:0 0 8px 8px}
+
+/* ─── FEATURE IMPORTANCE ─── */
+.feat-row{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--bd)}
+.feat-row:last-child{border:none}
+.feat-name{font-family:var(--mono);font-size:10px;color:var(--t2);min-width:160px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.feat-bar-wrap{flex:1;background:var(--s4);border-radius:2px;height:4px;overflow:hidden}
+.feat-bar{height:100%;background:linear-gradient(90deg,var(--pur),var(--cyan));border-radius:2px;transition:width .5s ease}
+.feat-val{font-family:var(--mono);font-size:9px;color:var(--t3);min-width:38px;text-align:right}
+
+/* ─── MODEL METRICS ─── */
+.met-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px}
+.met-box{background:var(--s3);border:1px solid var(--bd);border-radius:8px;padding:14px;text-align:center}
+.met-val{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--cyan)}
+.met-lbl{font-size:9px;color:var(--t3);margin-top:5px;text-transform:uppercase;letter-spacing:.07em}
+.met-extra{background:var(--s3);border:1px solid var(--bd);border-radius:8px;padding:14px 16px;font-family:var(--mono);font-size:11px;color:var(--t2);margin-top:10px}
+.met-extra span{color:var(--pur)}
+.met-extra .warn{color:var(--ora)}
+
+/* ─── MODAL ─── */
+#modal{display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);align-items:center;justify-content:center}
+#modal.open{display:flex}
+.modal-box{
+  background:var(--s2);border:1px solid var(--bd2);border-radius:12px;
+  width:min(680px,94vw);max-height:88vh;overflow-y:auto;
+}
+.modal-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:20px 24px 16px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--s2);z-index:1;
+}
+.modal-title{font-family:var(--mono);font-size:14px;font-weight:600;display:flex;align-items:center;gap:10px}
+.modal-close{background:var(--s3);border:1px solid var(--bd);border-radius:6px;color:var(--t2);font-size:14px;cursor:pointer;padding:4px 10px;line-height:1}
+.modal-close:hover{color:var(--t1);background:var(--s4)}
+.modal-body{padding:24px}
+.m-section{margin-bottom:20px}
+.m-sec-title{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--bd)}
+.m-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.m-kv{background:var(--s3);border-radius:6px;padding:10px 14px}
+.m-k{font-family:var(--mono);font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+.m-v{font-family:var(--mono);font-size:12px;color:var(--t1)}
+.tag-list{display:flex;flex-wrap:wrap;gap:6px}
+.ind-tag{font-family:var(--mono);font-size:10px;padding:3px 9px;border-radius:4px;background:var(--red-d);color:var(--red);border:1px solid var(--red-b)}
+.yara-tag{font-family:var(--mono);font-size:10px;padding:3px 9px;border-radius:4px;background:var(--ora-d);color:var(--ora);border:1px solid var(--ora-b)}
+.rec-box{background:var(--s3);border-left:3px solid var(--cyan);border-radius:0 7px 7px 0;padding:12px 16px;font-size:12px;line-height:1.6;color:var(--t1)}
+
+/* ─── LOADING ─── */
+.skeleton{background:linear-gradient(90deg,var(--s3) 25%,var(--s4) 50%,var(--s3) 75%);background-size:200% 100%;animation:shimmer 1.4s infinite;border-radius:4px}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* ─── SCROLLBAR ─── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--s4);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--s3)}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- ═══ SIDEBAR ═══ -->
+<aside class="sidebar">
+  <div class="sb-logo">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <span class="sb-logo-name">MalGuard</span>
+    </div>
+    <div class="sb-logo-sub">Fileless Threat Detection v1.0</div>
+  </div>
+
+  <div class="sb-section">
+    <div class="sb-section-label">Navigation</div>
+    <a class="sb-link active" onclick="scrollTo('s-overview',this)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Overview
+    </a>
+    <a class="sb-link" onclick="scrollTo('s-threats',this)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Threat Alerts
+    </a>
+    <a class="sb-link" onclick="scrollTo('s-processes',this)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      Process List
+    </a>
+    <a class="sb-link" onclick="scrollTo('s-analytics',this)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      ML Analytics
+    </a>
+  </div>
+
+  <div class="sb-section cfg-section" style="border-bottom:none;padding-bottom:0">
+    <div class="sb-section-label">Scan Config</div>
+    <div style="padding:4px 20px 12px">
+      <div style="font-size:10px;color:var(--t3);margin-bottom:6px;font-family:var(--mono)">PROCESSES</div>
+      <input id="cfgCount" type="number" value="60" min="10" max="200"
+        style="width:100%;background:var(--s3);border:1px solid var(--bd);border-radius:5px;padding:6px 10px;font-family:var(--mono);font-size:11px;color:var(--t1);outline:none">
+      <div style="font-size:10px;color:var(--t3);margin-top:8px;margin-bottom:6px;font-family:var(--mono)">MALICIOUS RATIO</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input id="cfgRatio" type="range" min="5" max="60" value="25"
+          style="flex:1;accent-color:var(--cyan)" oninput="document.getElementById('cfgRatioVal').textContent=this.value+'%'">
+        <span id="cfgRatioVal" style="font-family:var(--mono);font-size:10px;color:var(--cyan);min-width:30px">25%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sb-bottom">
+    <div class="sb-model-info">
+      <div><span class="status-dot"></span><span id="sbModelName">Random Forest</span></div>
+      <div style="margin-top:4px">Features: <span id="sbFeatCount">—</span></div>
+      <div>Engine: YARA + ML Hybrid</div>
+    </div>
+  </div>
+</aside>
+
+<!-- ═══ MAIN ═══ -->
+<div class="main-area">
+
+  <!-- ── TOPBAR ── -->
+  <header class="topbar">
+    <div class="tb-left">
+      <button class="toggle-btn" onclick="toggleSidebar()" title="Toggle sidebar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div>
+        <div class="tb-breadcrumb">Security Operations Center</div>
+        <div class="tb-section" id="tbSection">Overview Dashboard</div>
+      </div>
+    </div>
+    <div class="tb-right">
+      <div class="last-scan" id="lastScanDisplay" style="max-width:200px;overflow:hidden;text-overflow:ellipsis">—</div>
+      <div class="tb-clock" id="clock">—</div>
+      <div class="alert-bell" id="alertBell">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        <span class="alert-count" id="alertCount">0</span>
+      </div>
+      <div class="dl-wrap" id="dlWrap">
+        <button class="dl-btn" onclick="toggleDlMenu(event)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          DOWNLOAD
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="dl-menu" id="dlMenu">
+          <a class="dl-item" href="/api/report/pdf" download>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            PDF Report
+          </a>
+          <div class="dl-sep"></div>
+          <a class="dl-item" href="/api/report/csv" download>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+            CSV Export
+          </a>
+        </div>
+      </div>
+      <button class="scan-btn" id="scanBtn" onclick="startScan()">▶ RESCAN</button>
+    </div>
+  </header>
+
+  <!-- ── CONTENT ── -->
+  <div class="content">
+
+    <!-- ── PROGRESS ── -->
+    <div id="scanProgress">
+      <div class="prog-label">
+        <span id="progText">Initializing scan...</span>
+        <span id="progPct">0%</span>
+      </div>
+      <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
+    </div>
+
+    <!-- ══════════ OVERVIEW ══════════ -->
+    <section id="s-overview">
+      <div class="sec-header">
+        <div class="sec-title">System Overview</div>
+        <div class="sec-sub" id="scanTimestamp">Loading...</div>
+      </div>
+
+      <!-- KPI Cards -->
+      <div class="kpi-grid">
+        <div class="kpi k-total">
+          <div class="kpi-icon">🖥</div>
+          <div class="kpi-label">Total Scanned</div>
+          <div class="kpi-val" id="kTotal">—</div>
+          <div class="kpi-sub">processes this scan</div>
+        </div>
+        <div class="kpi k-threats">
+          <div class="kpi-icon">⚠</div>
+          <div class="kpi-label">Threats Detected</div>
+          <div class="kpi-val" id="kThreats">—</div>
+          <div class="kpi-sub" id="kThreatsRate">—</div>
+        </div>
+        <div class="kpi k-clean">
+          <div class="kpi-icon">✓</div>
+          <div class="kpi-label">Clean Processes</div>
+          <div class="kpi-val" id="kClean">—</div>
+          <div class="kpi-sub" id="kCleanRate">—</div>
+        </div>
+        <div class="kpi k-critical">
+          <div class="kpi-icon">🔴</div>
+          <div class="kpi-label">Critical Alerts</div>
+          <div class="kpi-val" id="kCritical">—</div>
+          <div id="kCriticalBadge" class="kpi-badge danger">IMMEDIATE ACTION</div>
+        </div>
+        <div class="kpi k-rate">
+          <div class="kpi-icon">📊</div>
+          <div class="kpi-label">Detection Rate</div>
+          <div class="kpi-val" id="kRate">—</div>
+          <div class="kpi-sub">% malicious processes</div>
+        </div>
+        <div class="kpi k-score">
+          <div class="kpi-icon">🎯</div>
+          <div class="kpi-label">Avg Threat Score</div>
+          <div class="kpi-val" id="kScore">—</div>
+          <div class="kpi-sub">avg hybrid score</div>
+        </div>
+      </div>
+
+      <!-- Timeline + Alert Feed -->
+      <div class="g2">
+        <div class="timeline-panel">
+          <div class="panel-head">
+            <div class="panel-head-left"><div class="ph-dot"></div>24-HOUR DETECTION TIMELINE</div>
+            <div class="panel-badge" id="tlWindow">Last 24h</div>
+          </div>
+          <div class="tl-stats">
+            <div class="tl-stat"><span class="tl-stat-label">Total events:</span><span class="tl-stat-val c" id="tlTotal">—</span></div>
+            <div class="tl-stat"><span class="tl-stat-label">Malicious:</span><span class="tl-stat-val r" id="tlMal">—</span></div>
+            <div class="tl-stat"><span class="tl-stat-label">Peak hour:</span><span class="tl-stat-val r" id="tlPeak">—</span></div>
+          </div>
+          <div class="chart-wrap" style="height:200px"><canvas id="timelineChart"></canvas></div>
+        </div>
+        <div class="alert-feed-panel">
+          <div class="panel-head">
+            <div class="panel-head-left"><div class="ph-dot" style="background:var(--red)"></div>LIVE THREAT FEED</div>
+            <div class="panel-badge" id="feedCount">0 threats</div>
+          </div>
+          <div class="feed-list" id="feedList">
+            <div class="feed-empty">No threats detected yet</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Risk + YARA + Attack Techniques -->
+      <div class="g3">
+        <div class="panel">
+          <div class="panel-head"><div class="panel-head-left"><div class="ph-dot"></div>RISK DISTRIBUTION</div></div>
+          <div class="chart-wrap" style="height:220px"><canvas id="riskChart"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="panel-head-left"><div class="ph-dot" style="background:var(--ora)"></div>TOP YARA RULES</div></div>
+          <div class="chart-wrap" style="height:220px"><canvas id="yaraChart"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="panel-head-left"><div class="ph-dot" style="background:var(--pur)"></div>ATTACK TECHNIQUES</div></div>
+          <div id="atkGrid" class="atk-grid" style="max-height:220px;overflow-y:auto"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════ THREAT ALERTS ══════════ -->
+    <section id="s-threats">
+      <div class="sec-header">
+        <div class="sec-title">Threat Alerts</div>
+        <div class="sec-sub" id="threatCount">—</div>
+      </div>
+      <div id="threatCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px"></div>
+    </section>
+
+    <!-- ══════════ PROCESS LIST ══════════ -->
+    <section id="s-processes">
+      <div class="sec-header">
+        <div class="sec-title">Process Scan Results</div>
+        <div class="sec-sub" id="tblResultCount">—</div>
+      </div>
+      <div class="table-controls">
+        <div class="search-wrap">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="filterInput" placeholder="Search process name..." oninput="applyFilters()">
+        </div>
+        <div class="chips">
+          <div class="chip active" data-r="ALL"      onclick="setRisk(this)">ALL</div>
+          <div class="chip"        data-r="CRITICAL"  onclick="setRisk(this)">CRITICAL</div>
+          <div class="chip"        data-r="HIGH"      onclick="setRisk(this)">HIGH</div>
+          <div class="chip"        data-r="MEDIUM"    onclick="setRisk(this)">MEDIUM</div>
+          <div class="chip"        data-r="LOW"       onclick="setRisk(this)">LOW</div>
+          <div class="chip"        data-r="SAFE"      onclick="setRisk(this)">SAFE</div>
+        </div>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="sortable" data-c="process_name" onclick="sortBy(this)">Process</th>
+              <th class="sortable" data-c="pid"           onclick="sortBy(this)">PID</th>
+              <th class="sortable" data-c="risk_level"    onclick="sortBy(this)">Risk</th>
+              <th class="sortable" data-c="hybrid_score"  onclick="sortBy(this)">Hybrid Score</th>
+              <th class="sortable" data-c="ml_probability" onclick="sortBy(this)">ML Prob</th>
+              <th class="sortable" data-c="yara_hits"     onclick="sortBy(this)">YARA Hits</th>
+              <th class="sortable" data-c="yara_score"    onclick="sortBy(this)">YARA Score</th>
+              <th>Malicious</th>
+              <th>YARA Max Sev</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr><td colspan="9" class="tbl-empty">Loading scan results...</td></tr>
+          </tbody>
+        </table>
+        <div class="tbl-count" id="tblCount"></div>
+      </div>
+    </section>
+
+    <!-- ══════════ ML ANALYTICS ══════════ -->
+    <section id="s-analytics">
+      <div class="sec-header">
+        <div class="sec-title">ML Analytics</div>
+        <div class="sec-sub" id="modelName">Loading...</div>
+      </div>
+      <div class="g2eq" style="margin-bottom:20px">
+        <div class="panel">
+          <div class="panel-head"><div class="panel-head-left"><div class="ph-dot" style="background:var(--pur)"></div>FEATURE IMPORTANCE (TOP 15)</div></div>
+          <div id="featList" style="margin-top:4px"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="panel-head-left"><div class="ph-dot" style="background:var(--cyan)"></div>MODEL PERFORMANCE</div></div>
+          <div id="metricsArea"></div>
+          <div class="panel-head" style="margin-top:20px;margin-bottom:12px"><div class="panel-head-left"><div class="ph-dot" style="background:var(--ora)"></div>SCORE DISTRIBUTION</div></div>
+          <div class="chart-wrap" style="height:140px"><canvas id="scoreChart"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+  </div><!-- /content -->
+</div><!-- /main-area -->
+</div><!-- /shell -->
+
+<!-- ═══ DETAIL MODAL ═══ -->
+<div id="modal" onclick="closeBg(event)">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <div class="modal-title" id="mTitle">Process Detail</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="mBody"></div>
+  </div>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let allResults = [], filteredResults = [];
+let sortCol = 'hybrid_score', sortDir = 'desc', riskFilter = 'ALL';
+const charts = {};
+
+// ─── Chart defaults ───────────────────────────────────────────────────────────
+Chart.defaults.color           = '#475569';
+Chart.defaults.borderColor     = 'rgba(255,255,255,0.05)';
+Chart.defaults.font.family     = "'JetBrains Mono', monospace";
+Chart.defaults.font.size       = 10;
+Chart.defaults.plugins.legend.labels.boxWidth = 10;
+Chart.defaults.plugins.legend.labels.padding  = 12;
+
+const RC = {CRITICAL:'#f87171',HIGH:'#fb923c',MEDIUM:'#fbbf24',LOW:'#22d3ee',SAFE:'#4ade80'};
+const RISK_ORD = ['CRITICAL','HIGH','MEDIUM','LOW','SAFE'];
+const ATK_COLORS = ['c-red','c-red','c-ora','c-ora','c-yel','c-yel','c-pur','c-pur','c-cyan','c-cyan','c-grn','c-grn'];
+
+function dc(id){if(charts[id]){charts[id].destroy();charts[id]=null}}
+
+// ─── Clock ────────────────────────────────────────────────────────────────────
+function updateClock(){
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' ' +
+    now.toLocaleTimeString('en-US',{hour12:false});
+}
+setInterval(updateClock, 1000); updateClock();
+
+// ─── Sidebar nav ──────────────────────────────────────────────────────────────
+function scrollTo(id, el){
+  document.querySelectorAll('.sb-link').forEach(l=>l.classList.remove('active'));
+  if(el) el.classList.add('active');
+  document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+// ─── Initial load ─────────────────────────────────────────────────────────────
+async function loadDashboard(){
+  try{
+    const res  = await fetch('/api/dashboard');
+    const data = await res.json();
+    if(data.scan){
+      allResults = data.scan.results || [];
+      populateDashboard(data.scan.summary, data.scan.scanned_at);
+    }
+    if(data.history)           renderTimeline(data.history);
+    if(data.feature_importance) renderFeatureImportance(data.feature_importance);
+    if(data.model_metrics)      renderModelMetrics(data.model_metrics);
+  }catch(e){ console.error('Dashboard load error',e); }
+}
+
+function populateDashboard(s, scannedAt){
+  if(!s) return;
+
+  // KPI cards
+  document.getElementById('kTotal').textContent    = s.total;
+  document.getElementById('kThreats').textContent  = s.malicious;
+  document.getElementById('kThreatsRate').textContent = `${s.detection_rate}% of scanned`;
+  document.getElementById('kClean').textContent    = s.benign;
+  document.getElementById('kCleanRate').textContent= `${(100-s.detection_rate).toFixed(1)}% of scanned`;
+  document.getElementById('kCritical').textContent = s.critical;
+  document.getElementById('kRate').textContent     = s.detection_rate + '%';
+  document.getElementById('kScore').textContent    = s.avg_mal_score;
+
+  const critBadge = document.getElementById('kCriticalBadge');
+  if(s.critical === 0){ critBadge.className='kpi-badge safe'; critBadge.textContent='NO CRITICAL THREATS'; }
+  else{ critBadge.className='kpi-badge danger'; critBadge.textContent=`${s.critical} NEED ATTENTION`; }
+
+  // Alert count
+  document.getElementById('alertCount').textContent = s.critical + s.high;
+  if(scannedAt){
+    document.getElementById('lastScanDisplay').textContent = scannedAt;
+    document.getElementById('scanTimestamp').textContent = `Last scan: ${scannedAt}`;
+  }
+
+  // Charts
+  renderRiskChart(s.risk_distribution);
+  renderYaraChart(s.top_yara_rules);
+  renderScoreChart(allResults);
+  renderAttackTechniques(s.top_indicators);
+  renderAlertFeed(allResults.filter(r=>r.is_malicious));
+  renderThreatCards(allResults.filter(r=>r.is_malicious));
+  document.getElementById('threatCount').textContent = `${s.malicious} malicious process${s.malicious!==1?'es':''} detected`;
+
+  // Table
+  applyFilters();
+}
+
+// ─── Risk chart ───────────────────────────────────────────────────────────────
+function renderRiskChart(dist){
+  dc('risk');
+  charts['risk'] = new Chart(document.getElementById('riskChart').getContext('2d'),{
+    type:'doughnut',
+    data:{
+      labels:RISK_ORD,
+      datasets:[{
+        data:RISK_ORD.map(r=>dist[r]||0),
+        backgroundColor:RISK_ORD.map(r=>RC[r]+'22'),
+        borderColor:RISK_ORD.map(r=>RC[r]),
+        borderWidth:1.5,hoverOffset:4
+      }]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,cutout:'60%',
+      plugins:{
+        legend:{position:'right',labels:{color:'#94a3b8',padding:10}},
+        tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${ctx.raw}`}}
+      }
+    }
+  });
+}
+
+// ─── YARA chart ───────────────────────────────────────────────────────────────
+function renderYaraChart(rules){
+  dc('yara');
+  charts['yara'] = new Chart(document.getElementById('yaraChart').getContext('2d'),{
+    type:'bar',
+    data:{
+      labels:rules.map(r=>r.rule.replace(/_/g,' ')),
+      datasets:[{
+        data:rules.map(r=>r.count),
+        backgroundColor:'#fb923c18',borderColor:'#fb923c',
+        borderWidth:1.5,borderRadius:3
+      }]
+    },
+    options:{
+      indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#475569'}},
+        y:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:9}}}
+      }
+    }
+  });
+}
+
+// ─── Score histogram ──────────────────────────────────────────────────────────
+function renderScoreChart(results){
+  dc('score');
+  const bins=[...Array(10)].map(()=>0);
+  results.forEach(r=>{bins[Math.min(9,Math.floor(r.hybrid_score*10))]++});
+  const labels=['0.0–0.1','0.1–0.2','0.2–0.3','0.3–0.4','0.4–0.5','0.5–0.6','0.6–0.7','0.7–0.8','0.8–0.9','0.9–1.0'];
+  const bgs  =['#4ade8018','#4ade8018','#22d3ee18','#22d3ee18','#fbbf2418','#fbbf2418','#fb923c18','#fb923c18','#f8717118','#f8717118'];
+  const bds  =['#4ade80','#4ade80','#22d3ee','#22d3ee','#fbbf24','#fbbf24','#fb923c','#fb923c','#f87171','#f87171'];
+  charts['score']=new Chart(document.getElementById('scoreChart').getContext('2d'),{
+    type:'bar',
+    data:{labels,datasets:[{data:bins,backgroundColor:bgs,borderColor:bds,borderWidth:1.5,borderRadius:3}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{grid:{display:false},ticks:{color:'#475569',font:{size:8},maxRotation:0}},
+        y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#475569',stepSize:1}}
+      }
+    }
+  });
+}
+
+// ─── 24h Timeline ─────────────────────────────────────────────────────────────
+function renderTimeline(history){
+  dc('tl');
+  const labels = history.map(h=>h.time);
+  // Totals from history
+  const totalSum = history.reduce((a,h)=>a+h.total,0);
+  const malSum   = history.reduce((a,h)=>a+h.malicious,0);
+  const peak     = history.reduce((a,h)=>h.malicious>a.malicious?h:a,{malicious:0,time:'—'});
+  document.getElementById('tlTotal').textContent = totalSum;
+  document.getElementById('tlMal').textContent   = malSum;
+  document.getElementById('tlPeak').textContent  = `${peak.time} (${peak.malicious})`;
+
+  charts['tl']=new Chart(document.getElementById('timelineChart').getContext('2d'),{
+    type:'line',
+    data:{
+      labels,
+      datasets:[
+        {label:'Malicious',data:history.map(h=>h.malicious),
+         borderColor:'#f87171',backgroundColor:'rgba(248,113,113,0.08)',
+         borderWidth:1.5,pointRadius:0,tension:0.35,fill:true},
+        {label:'Benign',data:history.map(h=>h.benign),
+         borderColor:'#4ade80',backgroundColor:'rgba(74,222,128,0.05)',
+         borderWidth:1.5,pointRadius:0,tension:0.35,fill:true}
+      ]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{position:'top',align:'end',labels:{color:'#94a3b8',boxWidth:8,padding:14}},
+        tooltip:{
+          backgroundColor:'#0b0f1c',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,
+          callbacks:{title:items=>`${items[0].label}`}
+        }
+      },
+      scales:{
+        x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#475569',maxTicksLimit:8}},
+        y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#475569',stepSize:2}}
+      }
+    }
+  });
+}
+
+// ─── Attack Techniques ────────────────────────────────────────────────────────
+function renderAttackTechniques(indicators){
+  const el = document.getElementById('atkGrid');
+  if(!indicators||!indicators.length){el.innerHTML='<div class="feed-empty">No indicators found</div>';return}
+  el.innerHTML=indicators.map((ind,i)=>`
+    <div class="atk-card">
+      <div class="atk-count ${ATK_COLORS[i]||'c-cyan'}">${ind.count}</div>
+      <div class="atk-info">
+        <div class="atk-name">${ind.indicator}</div>
+        <div class="atk-label">occurrences</div>
+      </div>
+    </div>`).join('');
+}
+
+// ─── Alert Feed ───────────────────────────────────────────────────────────────
+function renderAlertFeed(threats){
+  const el = document.getElementById('feedList');
+  document.getElementById('feedCount').textContent = `${threats.length} threat${threats.length!==1?'s':''}`;
+  if(!threats.length){el.innerHTML='<div class="feed-empty">No active threats</div>';return}
+  const sorted = [...threats].sort((a,b)=>b.hybrid_score-a.hybrid_score).slice(0,20);
+  el.innerHTML = sorted.map(r=>{
+    const inds = r.attack_indicators.slice(0,3);
+    const sc = r.hybrid_score>=0.85?'high':'med';
+    return `<div class="feed-item ${r.risk_level}" onclick="openModalByResult(${allResults.indexOf(r)})">
+      <div class="fi-top">
+        <span class="fi-name">${r.process_name}</span>
+        <span class="fi-pid">PID ${r.pid}</span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <span class="risk risk-${r.risk_level}">${r.risk_level}</span>
+        <span class="fi-score ${sc}">${r.hybrid_score.toFixed(3)}</span>
+      </div>
+      <div class="fi-indicators">${inds.map(i=>{
+        const isYara = i.startsWith('YARA:');
+        return `<span class="fi-ind${isYara?' yara':''}">${i.replace('YARA: ','')}</span>`;
+      }).join('')}</div>
+    </div>`;
+  }).join('');
+}
+
+// ─── Threat Cards (Threats section) ──────────────────────────────────────────
+function renderThreatCards(threats){
+  const el = document.getElementById('threatCards');
+  const sorted = [...threats].sort((a,b)=>b.hybrid_score-a.hybrid_score);
+  el.innerHTML = sorted.map(r=>`
+    <div style="background:var(--s2);border:1px solid ${r.risk_level==='CRITICAL'?'var(--red-b)':'var(--bd)'};border-radius:10px;padding:16px;cursor:pointer;transition:border-color .15s"
+         onclick="openModalByResult(${allResults.indexOf(r)})"
+         onmouseover="this.style.borderColor='var(--bd2)'" onmouseout="this.style.borderColor='${r.risk_level==='CRITICAL'?'var(--red-b)':'var(--bd)'}'">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
+        <div>
+          <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:${r.risk_level==='CRITICAL'?'var(--red)':'var(--t1)'};margin-bottom:2px">${r.process_name}</div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--t3)">PID: ${r.pid} · YARA: ${r.yara_hits} hits · Sev: ${r.yara_max_severity}</div>
+        </div>
+        <span class="risk risk-${r.risk_level}">${r.risk_level}</span>
+      </div>
+      <div style="display:flex;gap:16px;margin-bottom:10px">
+        <div style="flex:1">
+          <div style="font-size:9px;color:var(--t3);font-family:var(--mono);margin-bottom:4px">HYBRID SCORE</div>
+          <div class="score-bar">
+            <div class="score-trk"><div class="score-fill" style="width:${(r.hybrid_score*100).toFixed(0)}%;background:${scoreColor(r.hybrid_score)}"></div></div>
+            <span class="score-num" style="color:${scoreColor(r.hybrid_score)}">${r.hybrid_score.toFixed(3)}</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:9px;color:var(--t3);font-family:var(--mono);margin-bottom:4px">ML PROB</div>
+          <div style="font-family:var(--mono);font-size:12px;color:var(--t1)">${r.ml_probability.toFixed(3)}</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">${r.attack_indicators.slice(0,4).map(i=>`<span style="font-size:9px;font-family:var(--mono);padding:2px 7px;border-radius:3px;background:var(--red-d);color:var(--red)">${i}</span>`).join('')}</div>
+    </div>`).join('');
+}
+
+// ─── Feature Importance ───────────────────────────────────────────────────────
+function renderFeatureImportance(features){
+  if(!features||!features.length) return;
+  const max = features[0].importance;
+  document.getElementById('featList').innerHTML = features.map(f=>`
+    <div class="feat-row">
+      <div class="feat-name" title="${f.feature}">${f.feature}</div>
+      <div class="feat-bar-wrap"><div class="feat-bar" style="width:${(f.importance/max*100).toFixed(1)}%"></div></div>
+      <div class="feat-val">${(f.importance*100).toFixed(1)}%</div>
+    </div>`).join('');
+}
+
+// ─── Model Metrics ────────────────────────────────────────────────────────────
+function renderModelMetrics(m){
+  const keys=[['accuracy','Accuracy'],['precision','Precision'],['recall','Recall'],['f1','F1 Score'],['roc_auc','ROC-AUC']];
+  const avail = keys.filter(([k])=>m[k]!==undefined);
+  document.getElementById('modelName').textContent = m.model_name || 'Random Forest';
+  document.getElementById('sbModelName').textContent = m.model_name || 'Random Forest';
+  if(m.feature_count) document.getElementById('sbFeatCount').textContent = m.feature_count;
+  const el = document.getElementById('metricsArea');
+  el.innerHTML = `<div class="met-grid">${avail.map(([k,l])=>`
+    <div class="met-box">
+      <div class="met-val">${(m[k]*100).toFixed(1)}%</div>
+      <div class="met-lbl">${l}</div>
+    </div>`).join('')}</div>`;
+  const fpr = m.false_positive_rate ?? m.fpr;
+  if(fpr!==undefined){
+    el.innerHTML+=`<div class="met-extra">False Positive Rate: <span class="${fpr>0.05?'warn':''}">
+      ${(fpr*100).toFixed(2)}%</span></div>`;
+  }
+}
+
+// ─── Process Table ────────────────────────────────────────────────────────────
+function applyFilters(){
+  const q = document.getElementById('filterInput').value.toLowerCase();
+  filteredResults = allResults.filter(r=>{
+    const nm = r.process_name.toLowerCase().includes(q);
+    const rm = riskFilter==='ALL'||r.risk_level===riskFilter;
+    return nm&&rm;
+  });
+  sortResults();
+  renderTable();
+  document.getElementById('tblResultCount').textContent=`${filteredResults.length} of ${allResults.length} processes`;
+  document.getElementById('tblCount').textContent=`Showing ${filteredResults.length} processes`;
+}
+function setRisk(el){
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  riskFilter=el.dataset.r;
+  applyFilters();
+}
+function sortBy(th){
+  const col=th.dataset.c;
+  if(sortCol===col) sortDir=sortDir==='asc'?'desc':'asc';
+  else{sortCol=col;sortDir='desc'}
+  document.querySelectorAll('thead th').forEach(t=>t.classList.remove('sort-asc','sort-desc'));
+  th.classList.add(sortDir==='asc'?'sort-asc':'sort-desc');
+  applyFilters();
+}
+function sortResults(){
+  const RN={CRITICAL:5,HIGH:4,MEDIUM:3,LOW:2,SAFE:1};
+  filteredResults.sort((a,b)=>{
+    let av=a[sortCol],bv=b[sortCol];
+    if(sortCol==='risk_level'){av=RN[av]||0;bv=RN[bv]||0}
+    if(typeof av==='string'){av=av.toLowerCase();bv=bv.toLowerCase()}
+    return sortDir==='asc'?(av>bv?1:-1):(av<bv?1:-1);
+  });
+}
+function scoreColor(s){
+  if(s>=0.85)return'var(--red)';if(s>=0.65)return'var(--ora)';
+  if(s>=0.40)return'var(--yel)';if(s>=0.20)return'var(--cyan)';return'var(--grn)';
+}
+function renderTable(){
+  const tbody = document.getElementById('tableBody');
+  if(!filteredResults.length){
+    const msg = allResults.length?'No results match filters':'Loading...';
+    tbody.innerHTML=`<tr><td colspan="9" class="tbl-empty">${msg}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML=filteredResults.map(r=>{
+    const cls = r.risk_level==='CRITICAL'?'row-critical':'';
+    const sc = r.hybrid_score;
+    const col = scoreColor(sc);
+    const sev = r.yara_max_severity;
+    const sevCol = sev==='CRITICAL'?'var(--red)':sev==='HIGH'?'var(--ora)':sev==='MEDIUM'?'var(--yel)':'var(--t3)';
+    return `<tr class="${cls}" onclick="openModalByResult(${allResults.indexOf(r)})">
+      <td><span class="proc-name${r.is_malicious?' threat':''}">${r.process_name}</span></td>
+      <td style="color:var(--t3)">${r.pid}</td>
+      <td><span class="risk risk-${r.risk_level}">${r.risk_level}</span></td>
+      <td>
+        <div class="score-bar">
+          <div class="score-trk"><div class="score-fill" style="width:${(sc*100).toFixed(0)}%;background:${col}"></div></div>
+          <span class="score-num" style="color:${col}">${sc.toFixed(3)}</span>
+        </div>
+      </td>
+      <td style="color:var(--t2)">${r.ml_probability.toFixed(3)}</td>
+      <td style="color:${r.yara_hits>0?'var(--ora)':'var(--t3)'}">${r.yara_hits}</td>
+      <td style="color:${r.yara_score>0?'var(--ora)':'var(--t3)'}">${r.yara_score}</td>
+      <td style="color:${r.is_malicious?'var(--red)':'var(--grn)'};font-family:var(--mono);font-size:11px">${r.is_malicious?'⚠ YES':'✓ NO'}</td>
+      <td style="color:${sevCol};font-family:var(--mono);font-size:10px">${sev}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── Modal ────────────────────────────────────────────────────────────────────
+function openModalByResult(idx){
+  const r = allResults[idx];
+  if(!r) return;
+  const col = scoreColor(r.hybrid_score);
+  document.getElementById('mTitle').innerHTML=
+    `<span class="risk risk-${r.risk_level}" style="margin-right:8px">${r.risk_level}</span>${r.process_name} <span style="color:var(--t3);font-size:11px;font-weight:400">PID ${r.pid}</span>`;
+  document.getElementById('mBody').innerHTML=`
+    <div class="m-section">
+      <div class="m-sec-title">Detection Results</div>
+      <div class="m-grid">
+        <div class="m-kv"><div class="m-k">Hybrid Score</div>
+          <div class="m-v" style="color:${col};font-size:16px;font-weight:700">${r.hybrid_score.toFixed(4)}</div></div>
+        <div class="m-kv"><div class="m-k">ML Probability</div>
+          <div class="m-v">${r.ml_probability.toFixed(4)} <span style="color:var(--t3)">(${r.ml_label})</span></div></div>
+        <div class="m-kv"><div class="m-k">YARA Hits</div>
+          <div class="m-v" style="color:${r.yara_hits>0?'var(--ora)':'var(--t2)'}">${r.yara_hits} rule${r.yara_hits!==1?'s':''}</div></div>
+        <div class="m-kv"><div class="m-k">YARA Score / Max Severity</div>
+          <div class="m-v">${r.yara_score} / ${r.yara_max_severity}</div></div>
+        <div class="m-kv"><div class="m-k">Verdict</div>
+          <div class="m-v" style="color:${r.is_malicious?'var(--red)':'var(--grn)'}">${r.is_malicious?'⚠ MALICIOUS':'✓ BENIGN'}</div></div>
+        <div class="m-kv"><div class="m-k">Risk Level</div>
+          <div class="m-v"><span class="risk risk-${r.risk_level}">${r.risk_level}</span></div></div>
+      </div>
+    </div>
+    ${r.matched_rules.length?`
+    <div class="m-section">
+      <div class="m-sec-title">Matched YARA Rules</div>
+      <div class="tag-list">${r.matched_rules.map(rule=>`<span class="yara-tag">${rule.replace(/_/g,' ')}</span>`).join('')}</div>
+    </div>`:''}
+    ${r.attack_indicators.length?`
+    <div class="m-section">
+      <div class="m-sec-title">Attack Indicators (${r.attack_indicators.length})</div>
+      <div class="tag-list">${r.attack_indicators.map(i=>`<span class="ind-tag">${i}</span>`).join('')}</div>
+    </div>`:''}
+    <div class="m-section">
+      <div class="m-sec-title">Analyst Recommendation</div>
+      <div class="rec-box">${r.recommendation}</div>
+    </div>`;
+  document.getElementById('modal').classList.add('open');
+}
+function closeModal(){document.getElementById('modal').classList.remove('open')}
+function closeBg(e){if(e.target===document.getElementById('modal'))closeModal()}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+
+// ─── Live Rescan (SSE) ────────────────────────────────────────────────────────
+function startScan(){
+  const btn   = document.getElementById('scanBtn');
+  const prog  = document.getElementById('scanProgress');
+  const fill  = document.getElementById('progFill');
+  const txt   = document.getElementById('progText');
+  const pct   = document.getElementById('progPct');
+  const n     = parseInt(document.getElementById('cfgCount').value)||60;
+  const ratio = parseInt(document.getElementById('cfgRatio').value)/100;
+
+  btn.disabled=true;btn.classList.add('scanning');btn.textContent='⏳ SCANNING...';
+  prog.style.display='block';fill.style.width='0';
+  allResults=[];filteredResults=[];
+
+  const es = new EventSource(`/api/scan/stream?count=${n}&malicious_ratio=${ratio}&delay=0.05`);
+
+  es.onmessage = e=>{
+    const msg = JSON.parse(e.data);
+    if(msg.type==='result'){
+      allResults.push(msg.result);
+      const p=(msg.index/msg.total*100).toFixed(0);
+      fill.style.width=p+'%';
+      txt.textContent=`Scanning process ${msg.index} of ${msg.total} — ${msg.result.process_name}`;
+      pct.textContent=p+'%';
+      if(msg.result.is_malicious) {
+        // Live-feed the alert immediately
+        renderAlertFeed(allResults.filter(r=>r.is_malicious));
+      }
+      renderTable();
+      applyFilters();
+    } else if(msg.type==='summary'){
+      populateDashboard(msg.summary, new Date().toLocaleString());
+    } else if(msg.type==='done'){
+      es.close();
+      prog.style.display='none';
+      btn.disabled=false;btn.classList.remove('scanning');btn.textContent='▶ RESCAN';
+    }
+  };
+  es.onerror=()=>{
+    es.close();prog.style.display='none';
+    btn.disabled=false;btn.classList.remove('scanning');btn.textContent='▶ RESCAN';
+  };
+}
+
+// ─── Sidebar toggle ───────────────────────────────────────────────────────────
+function toggleSidebar(){
+  document.querySelector('.sidebar').classList.toggle('collapsed');
+  document.querySelector('.main-area').classList.toggle('expanded');
+}
+
+// ─── Download dropdown ────────────────────────────────────────────────────────
+function toggleDlMenu(e){
+  e.stopPropagation();
+  const menu = document.getElementById('dlMenu');
+  const btn  = document.getElementById('dlWrap');
+  const rect = btn.getBoundingClientRect();
+  menu.style.top  = (rect.bottom + 6) + 'px';
+  menu.style.right = (window.innerWidth - rect.right) + 'px';
+  menu.classList.toggle('open');
+}
+document.addEventListener('click', () => {
+  document.getElementById('dlMenu')?.classList.remove('open');
+});
+
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
+loadDashboard();
+</script>
+</body>
+</html>
